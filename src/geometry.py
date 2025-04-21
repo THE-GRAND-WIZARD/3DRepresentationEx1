@@ -49,12 +49,10 @@ def transform_cam2world(
 
 
 def project(
-    xyz: Float[Tensor, "batch vertex 4"],
-    intrinsics: Float[Tensor, "batch 3 3"],
-) -> Float[Tensor, "batch vertex 2"]:
+    xyz: Float[Tensor, "*#batch 4"],
+    intrinsics: Float[Tensor, "*#batch 3 3"],
+) -> Float[Tensor, "*batch 2"]:
     """Project homogenized 3D points in camera coordinates to pixel coordinates."""
-    xyz_proj = torch.matmul(intrinsics[:, None, :, :], xyz[..., :3].unsqueeze(-1)).squeeze(-1)
+    xyz_proj = matmul(intrinsics, xyz[..., :3])
     xy = xyz_proj[..., :2] / xyz_proj[..., 2:3]
-    # print(f"xy: {xy}")
     return xy
-
