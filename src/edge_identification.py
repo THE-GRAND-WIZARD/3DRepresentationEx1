@@ -8,17 +8,27 @@ from PIL import Image, ImageDraw
 
 import matplotlib.pyplot as plt
 
-def find_contours(binary_image: np.ndarray, foreground: int=1) -> np.ndarray:
+import numpy as np
+
+def find_contours(binary_image, foreground=1):
     """
-    Find the boundaries of objects in a binary image.
-    Args:
-        binary_image: A binary image with objects as foreground.
-        foreground: The value of the foreground pixels.
-    Returns:
-        A list of pixel coordinates that form the boundaries of the objects.
+    Find contours in a binary image.
+    Returns a list of (u, v) pixel coordinates that are on the edge.
     """
-    # TODO: Implement this method!
-    raise NotImplementedError
+    
+    h, w = binary_image.shape
+    contours = []
+    print(f"contor h: {h}   w: {w}")
+    print(f"binarized {binary_image}")
+    for y in range(1, h - 1):
+        for x in range(1, w - 1):
+            if binary_image[y, x] == foreground:
+                neighbors = binary_image[y - 1:y + 2, x - 1:x + 2]
+                if np.any(neighbors != foreground):
+                    contours.append((y, x)) 
+
+    return contours
+
 
 
 class ContourImage():
@@ -30,8 +40,10 @@ class ContourImage():
         """
         Convert the image to a binary image.
         """
-        # TODO: Implement this method!
-        raise NotImplementedError
+        gray_image = self.image.convert("L")
+        gray_array = np.array(gray_image)
+        self.binarized_image = (gray_array >= threshold).astype(np.uint8)
+        print(f"binarized {self.binarized_image}")
 
     def show(self) -> None:
         self.to_PIL().show()
@@ -40,8 +52,24 @@ class ContourImage():
         """
         Fill the border of the binarized image with zeros.
         """
-        # TODO: Implement this method!
-        raise NotImplementedError
+        if self.binarized_image is None:
+            raise ValueError("Image must be binarized before filling the border.")
+
+        h, w = self.binarized_image.shape
+        
+        self.binarized_image[0, :] = 0
+        self.binarized_image[h - 1, :] = 0
+        self.binarized_image[:, 0] = 0
+        self.binarized_image[:, w - 1] = 0
+        for y in range(1, h - 1):
+            for x in range(1, w - 1):
+                if self.binarized_image[y,x] == 0:
+                    neighbors = self.binarized_image[y - 1:y + 2, x - 1:x + 2]
+                    if np.any(neighbors != 0):
+                        self.binarized_image[y, x] = 0  
+                        break
+
+
 
     def to_PIL(self) -> Image:
         color_array = np.stack([self.binarized_image]*3, axis=-1) * 255
