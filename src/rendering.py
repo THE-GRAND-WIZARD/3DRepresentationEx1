@@ -1,6 +1,8 @@
 import torch
 from torch import Tensor
 from jaxtyping import Float
+from src.geometry import homogenize_points, transform_world2cam, project
+
 
 def render_point_cloud(
     vertices: Float[Tensor, "vertex 3"],
@@ -12,33 +14,34 @@ def render_point_cloud(
     into camera space, project them onto the image plane, and color the corresponding
     pixels on the canvas black.
     """
-    batch_size = extrinsics.shape[0]
-    num_vertices = vertices.shape[0]
-    height, width = resolution
 
+    batch_size = extrinsics.shape[0]
+    height, width = resolution
+    num_vertices = vertices.shape[0]
+
+    # Step 1: Homogenize points [V, 3] → [V, 4]
+    homo_vertices = homogenize_points(vertices)  # [V, 4]
+
+    # Step 2: Expand points to batch [B, V, 4]
+    homo_vertices = homo_vertices.unsqueeze(0).expand(batch_size, -1, -1)  # [B, V, 4]
+
+    # Step 3: Transform to camera space
+    cam_coords = transform_world2cam(homo_vertices, extrinsics)  # [B, V, 4]
+
+    # Step 4: Project to image plane
+    pixel_coords = project(cam_coords, intrinsics)  # [B, V, 2]
+
+    # Step 5: Convert to integer pixel coordinates
+    pixel_coords_rounded = pixel_coords.round().long()  # [B, V, 2]
+
+    # Step 6: Clamp to image boundaries
+    x = pixel_coords_rounded[..., 0].clamp(0, width - 1)
+    y = pixel_coords_rounded[..., 1].clamp(0, height - 1)
+
+    # Step 7: Render canvas (1.0 = white, 0.0 = black)
     canvas = torch.ones((batch_size, height, width), dtype=torch.float32)
 
-    vertices_homo = torch.cat([vertices, torch.ones(num_vertices, 1)], dim=1)
-    vertices_homo = vertices_homo.T
-
-    cam_coords = torch.matmul(extrinsics, vertices_homo[None, :, :])
-    cam_coords = cam_coords[:, :3, :]
-
-    z = cam_coords[:, 2, :] + 1e-5
-    normalized = cam_coords[:, :2, :] / z.unsqueeze(1)
-    ones = torch.ones((batch_size, 1, num_vertices), device=vertices.device)
-    proj_points = torch.cat([normalized, ones], dim=1)
-
-    pixels = torch.matmul(intrinsics, proj_points)
-    u = pixels[:, 0, :].long()
-    v = pixels[:, 1, :].long()
-
     for b in range(batch_size):
-        mask = (
-            (u[b] >= 0) & (u[b] < width) &
-            (v[b] >= 0) & (v[b] < height) &
-            (z[b] > 0)
-        )
-        canvas[b, v[b, mask], u[b, mask]] = 0.0
+        canvas[b, y[b], x[b]] = 0.0
 
     return canvas
