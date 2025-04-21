@@ -2,6 +2,8 @@ import torch
 from torch import Tensor
 from jaxtyping import Float
 
+from src.geometry import homogenize_points, project, transform_world2cam
+
 def render_point_cloud(
     vertices: Float[Tensor, "vertex 3"],
     extrinsics: Float[Tensor, "batch 4 4"],
@@ -13,32 +15,27 @@ def render_point_cloud(
     pixels on the canvas black.
     """
     batch_size = extrinsics.shape[0]
-    num_vertices = vertices.shape[0]
     height, width = resolution
-
     canvas = torch.ones((batch_size, height, width), dtype=torch.float32)
 
-    vertices_homo = torch.cat([vertices, torch.ones(num_vertices, 1)], dim=1)
-    vertices_homo = vertices_homo.T
+    verts_h = homogenize_points(vertices)  # [vertex, 4]
+    verts_h = verts_h.unsqueeze(0).expand(batch_size, -1, -1)  # [batch, vertex, 4]
 
-    cam_coords = torch.matmul(extrinsics, vertices_homo[None, :, :])
-    cam_coords = cam_coords[:, :3, :]
+    verts_h_flat = verts_h.reshape(-1, 4)  # [batch*vertex, 4]
+    extrinsics_flat = extrinsics.repeat_interleave(verts_h.shape[1], dim=0)  # [batch*vertex, 4, 4]
 
-    z = cam_coords[:, 2, :] + 1e-5
-    normalized = cam_coords[:, :2, :] / z.unsqueeze(1)
-    ones = torch.ones((batch_size, 1, num_vertices), device=vertices.device)
-    proj_points = torch.cat([normalized, ones], dim=1)
+    cam_coords = transform_world2cam(verts_h_flat, extrinsics_flat)  # [batch*vertex, 4]
+    cam_coords = cam_coords.reshape(batch_size, -1, 4)  # [batch, vertex, 4]
 
-    pixels = torch.matmul(intrinsics, proj_points)
-    u = pixels[:, 0, :].long()
-    v = pixels[:, 1, :].long()
+    pixel_coords = project(cam_coords, intrinsics)  # [batch, vertex, 2]
+    pixel_coords = (pixel_coords * 256).round().long()  # [batch, vertex, 2]
+
+    x, y = pixel_coords.unbind(-1)  # [batch, vertex]
+    valid_mask = (x >= 0) & (x < width) & (y >= 0) & (y < height)
 
     for b in range(batch_size):
-        mask = (
-            (u[b] >= 0) & (u[b] < width) &
-            (v[b] >= 0) & (v[b] < height) &
-            (z[b] > 0)
-        )
-        canvas[b, v[b, mask], u[b, mask]] = 0.0
+        xb = x[b][valid_mask[b]]
+        yb = y[b][valid_mask[b]]
+        canvas[b, yb, xb] = 0.0
 
     return canvas
