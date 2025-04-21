@@ -11,7 +11,7 @@ with install_import_hook(("src",), ("beartype", "beartype")):
 
 # Put the path to your puzzle here.
 DATASET_PATH = Path(
-    "PATH_TO_PUZZLE"
+    "..\data\Puzzle"
 )
 
 if __name__ == "__main__":
@@ -28,6 +28,7 @@ if __name__ == "__main__":
 
     # Save the resulting images.
     for index, image in enumerate(images):
+        print("YEOUCH!!!")
         save_image(image, f"outputs/2_puzzle/view_{index:0>2}.png")
 
     print("Saved images to outputs/2_puzzle/view_*.png")
