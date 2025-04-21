@@ -59,8 +59,8 @@ def convert_dataset(dataset: PuzzleDataset) -> PuzzleDataset:
         # Apply axis remapping
         # Assume original: Right = -Z, Up = +Y, Look = +X
         change_basis = torch.tensor([
-            [0,  0,  1],
-            [0, -1,  0],
+            [0,  -1,  0],
+            [0, 0,  -1],
             [1,  0,  0]
         ], dtype=torch.float32)
 
@@ -89,24 +89,16 @@ def quiz_question_1() -> Literal["w2c", "c2w"]:
 
 
 def quiz_question_2() -> Literal["+x", "-x", "+y", "-y", "+z", "-z"]:
-    return "+x"  # camera looks toward origin, origin is along -X → look = +X
+    return "+z"
 
 
 def quiz_question_3() -> Literal["+x", "-x", "+y", "-y", "+z", "-z"]:
-    return "+y"  # up vector has positive dot with world +Y
+    return "-x"
 
 
 def quiz_question_4() -> Literal["+x", "-x", "+y", "-y", "+z", "-z"]:
-    return "-z"  # right-hand rule implies right = -Z
+    return "-y"
 
 
 def explanation_of_problem_solving_process() -> str:
-    return (
-        "I started by loading the dataset and analyzing the extrinsic matrices. Since the camera positions were known "
-        "to point toward the origin, I inferred the look direction from the translation vector. By comparing the rotation "
-        "matrix axes with the expected world orientation, I deduced the existing camera frame: look was +X, up was +Y, and "
-        "right was -Z. I then constructed a change-of-basis matrix to remap the camera coordinate frame into OpenCV format "
-        "(+Z forward, -Y up, +X right). After converting each extrinsic matrix into world-to-camera format, I applied this "
-        "transformation and inverted it to yield OpenCV-style camera-to-world matrices. Finally, I validated correctness by "
-        "rendering and confirming image alignment."
-    )
+    return "We used Brute Force, checking the different Options until the Generated Images were the same as the Dataset."
