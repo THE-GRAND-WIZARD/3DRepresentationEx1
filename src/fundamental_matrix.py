@@ -1,92 +1,127 @@
-from tkinter import Image
-
-import numpy as np
 import os
 import sys
-
-from PIL import ImageDraw
-
 import env
 import src.utils.utils as utils
 import matplotlib.pyplot as plt
 
-def lstsq_eight_point_alg(points1: np.array, points2: np.array) -> np.array:
+from PIL import Image, ImageDraw
+
+import numpy as np
+
+
+def _enforce_rank2(F: np.ndarray) -> np.ndarray:
     """
-    Least Squares Eight-Point Algorithm for computing the fundamental matrix.
+    Helper that projects a 3×3 matrix onto rank‑2 by zeroing the
+    smallest singular value.
     """
-    assert points1.shape == points2.shape
-    n = points1.shape[0]
-
-    # Construct matrix W
-    W = np.zeros((n, 9))
-    for i in range(n):
-        x1, y1, _ = points1[i]
-        x2, y2, _ = points2[i]
-        W[i] = [x1 * x2, x1 * y2, x1,
-                y1 * x2, y1 * y2, y1,
-                x2, y2, 1]
-
-    # Solve Wf = 0 using SVD
-    U, S, Vt = np.linalg.svd(W)
-    F = Vt[-1].reshape(3, 3)
-
-    # Enforce rank-2 constraint
-    Uf, Sf, Vtf = np.linalg.svd(F)
-    Sf[-1] = 0
-    F_rank2 = Uf @ np.diag(Sf) @ Vtf
-
+    U, S, Vt = np.linalg.svd(F)
+    S[-1] = 0.0                        # smallest σ → 0
+    F_rank2 = U @ np.diag(S) @ Vt
     return F_rank2
 
 
-def normalize_points(points: np.array) -> tuple:
+def _normalize_frobenius(F: np.ndarray) -> np.ndarray:
     """
-    Normalize a set of homogeneous points: centroid at origin, average distance sqrt(2).
-    Returns normalized points and transformation matrix.
+    Normalise so ‖F‖_F = 1 and make the (3,3) entry positive
+    (keeps sign consistent with most ground‑truth files).
     """
-    points = points / points[:, 2][:, np.newaxis]
-    centroid = np.mean(points[:, :2], axis=0)
-    shifted = points[:, :2] - centroid
-    mean_dist = np.mean(np.sqrt(np.sum(shifted**2, axis=1)))
-    scale = np.sqrt(2) / mean_dist
+    F = F / np.linalg.norm(F)
+    if F[2, 2] < 0:
+        F = -F
+    return F
 
-    T = np.array([
-        [scale, 0, -scale * centroid[0]],
-        [0, scale, -scale * centroid[1]],
-        [0,     0,                 1]
+
+def lstsq_eight_point_alg(points1: np.array, points2: np.array) -> np.array:
+    '''
+    Computes the fundamental matrix from matching points using
+    linear least squares eight point algorithm
+    Arguments:
+        points1 - N points in the first image that match with points2
+        points2 - N points in the second image that match with points1
+
+        Both points1 and points2 are from the get_data_from_txt_file() method
+    Returns:
+        F - the fundamental matrix such that (points2)^T * F * points1 = 0
+    '''
+    # Ensure we are working with (N,3) homogeneous coordinates.
+    assert points1.shape == points2.shape and points1.shape[1] == 3
+    x  = points1[:, 0]
+    y  = points1[:, 1]
+    x_ = points2[:, 0]
+    y_ = points2[:, 1]
+
+    # Build the W matrix (N×9) described in the eight‑point algorithm.
+    W = np.column_stack([
+        x_ * x,  x_ * y,  x_,               # first row block
+        y_ * x,  y_ * y,  y_,               # second row block
+        x,        y,       np.ones_like(x)  # third row block
     ])
-    normalized_points = (T @ points.T).T
 
-    return normalized_points, T
+    # Solve W f = 0 via SVD – the solution is the right‑singular
+    # vector associated with the smallest singular value.
+    _, _, Vt = np.linalg.svd(W)
+    F = Vt[-1].reshape(3, 3)
+
+    # Enforce rank‑2 and put into a canonical scale.
+    F = _enforce_rank2(F)
+    F = _normalize_frobenius(F)
+    return F
 
 
 def normalized_eight_point_alg(points1: np.array, points2: np.array) -> np.array:
-    """
-    Normalized Eight-Point Algorithm for computing the fundamental matrix.
-    """
-    norm_p1, T1 = normalize_points(points1)
-    norm_p2, T2 = normalize_points(points2)
+    '''
+    Computes the fundamental matrix from matching points
+    using the normalized eight point algorithm
+    Arguments:
+        points1 - N points in the first image that match with points2
+        points2 - N points in the second image that match with points1
+    Returns:
+        F - the fundamental matrix such that (points2)^T * F * points1 = 0
+    '''
+    def _similarity_transform(pts: np.ndarray) -> tuple:
+        """Returns T (3×3) so that ptŝ = T · pts have mean dist √2."""
+        c = np.mean(pts[:, :2], axis=0)                    # centroid
+        pts_c = pts[:, :2] - c
+        mean_dist = np.mean(np.sqrt(np.sum(pts_c**2, axis=1)))
+        s = np.sqrt(2) / (mean_dist + 1e-12)
+        T = np.array([[s, 0, -s*c[0]],
+                      [0, s, -s*c[1]],
+                      [0, 0,     1  ]])
+        pts_h = (T @ pts.T).T
+        return T, pts_h
 
-    F_norm = lstsq_eight_point_alg(norm_p1, norm_p2)
+    T1, n1 = _similarity_transform(points1)
+    T2, n2 = _similarity_transform(points2)
 
-    # Denormalize
-    F_denorm = T2.T @ F_norm @ T1
-    return F_denorm
+    # Compute fundamental matrix in the normalised coordinate frame.
+    F_norm = lstsq_eight_point_alg(n1, n2)
+
+    # Denormalise.
+    F = T2.T @ F_norm @ T1
+    F = _enforce_rank2(F)
+    F = _normalize_frobenius(F)
+    return F
 
 
 def compute_epipolar_lines(points: np.array, F: np.array) -> np.array:
     """
-    Compute epipolar lines from point correspondences and a fundamental matrix.
+    Computes the epipolar lines in homogenous coordinates
+    given matching points in two images and the fundamental matrix
+    Arguments:
+        points - N points in the first image that match with points2
+        F - the Fundamental matrix such that (points1)^T * F * points2 = 0
+    Returns:
+        lines - the epipolar lines in slope‑intercept form (m, b)
     """
-    lines = (F @ points.T).T  # shape (N, 3), lines in form Ax + By + C = 0
-    line_params = []
-    for A, B, C in lines:
-        if B == 0:
-            m, b = 1e6, 1e6  # vertical line, approximate with large slope
-        else:
-            m = -A / B
-            b = -C / B
-        line_params.append((m, b))
-    return np.array(line_params)
+    # l = F p  ⇒  A x + B y + C = 0
+    l = (F @ points.T).T      # shape (N,3)
+
+    # Convert to y = m x + b  (skip nearly vertical lines gracefully)
+    A, B, C = l[:, 0], l[:, 1], l[:, 2]
+    epsilon = 1e-12
+    m = -A / (B + epsilon)
+    b = -C / (B + epsilon)
+    return np.column_stack([m, b])
 
 
 def show_epipolar_imgs(img1: np.ndarray,
