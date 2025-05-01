@@ -12,6 +12,9 @@ from src.image_rectification import *
 from src.the_3D_reconstruction import *
 
 
+i = 0
+
+
 def reprojection_error(params, n_cameras, n_points, camera_indices, point_indices, observed_2d, camera_matrix):
     """
     Compute reprojection error for all observations given camera and point parameters.
@@ -33,6 +36,9 @@ def reprojection_error(params, n_cameras, n_points, camera_indices, point_indice
         x_proj = P.dot(X)
         x_proj = x_proj[:2] / x_proj[2]
         residuals.extend(x_proj - observed_2d[obs_idx])
+    global i
+    print(i)
+    i += 1
     return np.array(residuals)
 
 
@@ -45,15 +51,20 @@ def bundle_adjustment(camera_params, points_3d, camera_indices, point_indices, o
     # pack initial parameters
     x0 = np.hstack((camera_params.ravel(), points_3d.ravel()))
     # least squares
+    k = n_points
     result = least_squares(
         fun=reprojection_error,
-        x0=x0,
-        args=(n_cameras, n_points, camera_indices, point_indices, observed_2d, camera_matrix),
-        method='lm'
+        x0=x0[:3 * k + 30],
+        # args=(n_cameras, n_points, camera_indices, point_indices, observed_2d, camera_matrix),
+        args=(n_cameras, k, camera_indices[:2 * k], point_indices[:2 * k], observed_2d[:2 * k], camera_matrix),
+        method='lm',
+        max_nfev=10000
     )
+    print("Finally!")
     opt = result.x
     cam_opt = opt[:n_cameras * 6].reshape((n_cameras, 6))
-    pts_opt = opt[n_cameras * 6:].reshape((n_points, 3))
+    # pts_opt = opt[n_cameras * 6:].reshape((n_points, 3))
+    pts_opt = opt[n_cameras * 6:].reshape((k, 3))
     return cam_opt, pts_opt
 
 
